@@ -17,6 +17,14 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets)
 if(YUZU_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     add_subdirectory(../tests/qt_compatibility ${CMAKE_BINARY_DIR}/qt_compatibility_tests)
+    add_executable(graphics_preset_tests
+        ../tests/qt_graphics_presets.cpp
+        configuration/graphics_presets.cpp
+        configuration/shared_widget.cpp)
+    target_include_directories(graphics_preset_tests PRIVATE ..)
+    target_link_libraries(graphics_preset_tests PRIVATE qt_common common Qt6::Widgets Qt6::Test)
+    add_test(NAME graphics_presets COMMAND graphics_preset_tests)
+    set_tests_properties(graphics_presets PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     add_executable(shader_backlog_tests
         ../tests/qt_shader_backlog.cpp
         shader_backlog_prompt.cpp shader_backlog_prompt.h
@@ -29,6 +37,8 @@ endif()
 
 add_executable(yuzu
     Info.plist
+    configuration/graphics_presets.cpp
+    configuration/graphics_presets.h
     about_dialog.cpp
     about_dialog.h
     aboutdialog.ui

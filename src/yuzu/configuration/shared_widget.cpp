@@ -658,6 +658,37 @@ void Widget::SetupComponent(const QString& label, std::function<void()>& load_fu
     }
 
     layout->addWidget(data_component, 1);
+    preset_reader = serializer;
+    preset_writer = [this, touch](const std::string& value) {
+        bool ok = false;
+        const auto number = QString::fromStdString(value).toInt(&ok);
+        if (checkbox && !combobox && !slider && !spinbox) {
+            checkbox->setChecked(value == "true");
+        } else if (combobox && ok) {
+            const int index = combobox->findData(number);
+            if (index < 0) return false;
+            touch();
+            combobox->setCurrentIndex(index);
+        } else if (!radio_buttons.empty() && ok) {
+            bool found = false;
+            for (const auto& [id, button] : radio_buttons) {
+                if (id == static_cast<u32>(number)) {
+                    button->setChecked(true);
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        } else if (slider && ok) {
+            slider->setValue(number);
+        } else if (spinbox && ok) {
+            spinbox->setValue(number);
+        } else {
+            return false;
+        }
+        touch();
+        return true;
+    };
 
     if (!managed) {
         return;
@@ -713,6 +744,16 @@ void Widget::SetupComponent(const QString& label, std::function<void()>& load_fu
         reset(checkbox->checkState());
     }
 }
+
+std::string Widget::DraftValue() const {
+    return preset_reader ? preset_reader() : setting.ToString();
+}
+
+bool Widget::SetDraftValue(const std::string& value) {
+    return preset_writer && preset_writer(value);
+}
+
+std::string Widget::SettingKey() const { return setting.GetLabel(); }
 
 bool Widget::Valid() const {
     return created;

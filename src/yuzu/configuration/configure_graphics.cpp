@@ -85,7 +85,7 @@ ConfigureGraphics::ConfigureGraphics(
         vsync_mode_combobox->setCurrentIndex(index);
     }
 
-    connect(api_combobox, qOverload<int>(&QComboBox::activated), this, [this] {
+    connect(api_combobox, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] {
         UpdateAPILayout();
         PopulateVSyncModeSelection(false);
     });
@@ -122,6 +122,29 @@ ConfigureGraphics::ConfigureGraphics(
             update_screenshot_info);
     connect(resolution_combobox, QOverload<int>::of(&QComboBox::currentIndexChanged),
             update_screenshot_info);
+
+    for (auto* field : findChildren<ConfigurationShared::Widget*>()) {
+        if (field->SettingKey() == Settings::values.vsync_mode.GetLabel()) {
+            field->preset_reader = [this] {
+                return std::to_string(static_cast<u32>(PresentModeToSetting(
+                    vsync_mode_combobox_enum_map.at(vsync_mode_combobox->currentIndex()))));
+            };
+            field->preset_writer = [this](const std::string& value) {
+                const auto mode = VSyncSettingToMode(static_cast<Settings::VSyncMode>(std::stoi(value)));
+                for (size_t i = 0; i < vsync_mode_combobox_enum_map.size(); ++i) {
+                    if (vsync_mode_combobox_enum_map[i] == mode) {
+                        vsync_mode_combobox->setCurrentIndex(static_cast<int>(i));
+                        if (!Settings::IsConfiguringGlobal()) {
+                            vsync_restore_global_button->setEnabled(true);
+                            vsync_restore_global_button->setVisible(true);
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            };
+        }
+    }
 
     api_combobox->setEnabled(!UISettings::values.has_broken_vulkan && api_combobox->isEnabled());
     ui->api_widget->setEnabled(
@@ -481,6 +504,9 @@ void ConfigureGraphics::ApplyConfiguration() {
         func(powered_on);
     }
 
+    if (!Settings::IsConfiguringGlobal()) {
+        Settings::values.vsync_mode.SetGlobal(vsync_restore_global_button->isHidden());
+    }
     UpdateVsyncSetting();
 
     Settings::values.vulkan_device.SetGlobal(true);

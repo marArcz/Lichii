@@ -84,6 +84,12 @@ public:
      * @returns True if the Widget successfully created the components for the setting
      */
     bool Valid() const;
+    std::string DraftValue() const;
+    bool SetDraftValue(const std::string& value);
+    std::string SettingKey() const;
+
+    std::function<std::string()> preset_reader;
+    std::function<bool(const std::string&)> preset_writer;
 
     /**
      * Creates a button to appear when a setting has been modified. This exists for custom

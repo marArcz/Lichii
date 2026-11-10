@@ -136,3 +136,24 @@ regedit /s %temp%\FixFullScreen.reg
 del %temp%\FixFullScreen.reg
 exit /b
 ```
+
+## Graphics presets
+
+The desktop Graphics tab offers Performance, Balanced and Quality presets in both global
+configuration and game properties. Ocarina of Time's properties also offer **Ocarina — 4 GB
+laptop**, using handheld rendering, a 30 FPS limit, BC3 textures and shader precaching. Disable
+Max Resolution separately in Add-ons when using that profile. A stable frame rate is not guaranteed.
+
+Select a preset and press **Apply Preset**, then confirm the settings dialog. Cancel discards
+unapplied changes. Performance, Balanced and the laptop preset limit waits for unfinished shaders;
+objects or effects can briefly appear late. Quality waits for complete shaders and needs more VRAM.
+
+**Save As** captures edited everyday graphics controls, including pending edits on other tabs.
+**Manage** updates, renames or deletes custom presets and imports/exports JSON files. These library
+operations save immediately, even if the settings dialog is later canceled. Built-ins cannot be
+modified; save a custom copy instead. Imported files are not applied automatically.
+
+Presets exclude GPU device selection, CPU settings, add-ons, shader caches, effect-chain files and
+experimental hacks. Per-game application creates overrides without changing global preferences.
+Stop emulation before applying a preset. Custom presets are stored in `graphics-presets.json` in
+the existing configuration directory; the file follows portable-mode and user-directory settings.

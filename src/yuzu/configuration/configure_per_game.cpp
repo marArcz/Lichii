@@ -45,6 +45,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "common/fs/fs_util.h"
+#include "yuzu/configuration/graphics_presets.h"
 #include "common/settings_enums.h"
 #include "common/settings_input.h"
 #include "common/string_util.h"
@@ -451,6 +452,8 @@ ConfigurePerGame::ConfigurePerGame(QWidget* parent, u64 title_id_, const std::st
         connect(apply_button, &QAbstractButton::clicked, this,
                 &ConfigurePerGame::HandleApplyButtonClicked);
     }
+
+    InstallGraphicsPresets(*graphics_tab, *this, system.IsPoweredOn(), title_id);
 
     LoadConfiguration();
 }

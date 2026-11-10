@@ -6,6 +6,7 @@
 
 #include <memory>
 #include "common/logging.h"
+#include "yuzu/configuration/graphics_presets.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "core/core.h"
@@ -89,6 +90,8 @@ ConfigureDialog::ConfigureDialog(QWidget* parent, HotkeyRegistry& registry_,
     input_tab->Initialize(input_subsystem);
 
     general_tab->SetResetCallback([&] { this->close(); });
+
+    InstallGraphicsPresets(*graphics_tab, *this, system.IsPoweredOn(), 0);
 
     SetConfiguration();
     PopulateSelectionList();
