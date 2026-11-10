@@ -354,6 +354,7 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
             .cpu_bytes = build_queue.cpu_bytes,
             .driver_bytes = build_queue.driver_bytes,
         };
+        build_job.runtime_pipeline = build_queue.runtime_pipeline;
         if (emit) {
             // The SPIR-V is emitted first, in the job's CPU stage (shader cache v2)
             build_job.cpu = [this, shader_notify, emit = std::move(emit)](
@@ -375,15 +376,25 @@ ComputePipeline::ComputePipeline(const Device& device_, Scheduler& scheduler, vk
                     spv_module = emit();
                 } catch (const std::exception& exception) {
                     fail(exception.what());
-                    return {};
+                    throw;
                 } catch (...) {
                     fail("unknown exception");
-                    return {};
+                    throw;
                 }
-                return [this] { RunBuild(); };
+                return [this] {
+                    RunBuild();
+                    if (!pipeline) {
+                        throw Shader::RuntimeError("Compute pipeline build failed");
+                    }
+                };
             };
         } else {
-            build_job.driver = [this] { RunBuild(); };
+            build_job.driver = [this] {
+                RunBuild();
+                if (!pipeline) {
+                    throw Shader::RuntimeError("Compute pipeline build failed");
+                }
+            };
         }
         job = jobs->Submit(std::move(build_job));
     } else if (!build_queue.owner_builds) {

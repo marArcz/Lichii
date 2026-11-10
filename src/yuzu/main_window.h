@@ -59,6 +59,7 @@ class QPushButton;
 class QProgressDialog;
 class NupProgressDialog;
 class ShaderWarmDialog;
+class ShaderBacklogPrompt;
 class NxTools;
 class QSlider;
 class QHBoxLayout;
@@ -557,6 +558,7 @@ private:
     QWidget* volume_popup = nullptr;
     QSlider* volume_slider = nullptr;
     QTimer status_bar_update_timer;
+    std::unique_ptr<ShaderBacklogPrompt> shader_backlog_prompt;
 
     // Stores what suffix to add to the FPS counter, e.g. Unlocked.
     QString m_fpsSuffix{};

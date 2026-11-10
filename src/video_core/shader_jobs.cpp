@@ -39,6 +39,7 @@ struct ShaderJobState {
     std::chrono::steady_clock::time_point stage_begin;
     std::optional<std::chrono::steady_clock::time_point> stalled_since;
     bool started{};
+    u64 runtime_id{};
 };
 
 namespace {
@@ -94,6 +95,32 @@ ShaderJobPriority ShaderJobHandle::Priority() const {
 
 bool ShaderJobHandle::Ready() const {
     return IsFinal(Status());
+}
+
+ShaderBuildProgress ShaderBuildGroup::Progress() const {
+    ShaderBuildProgress result{.supported = true};
+    for (const auto& job : jobs) {
+        switch (job.Status()) {
+        case ShaderJobStatus::Queued:
+        case ShaderJobStatus::DriverQueued:
+            ++result.queued;
+            break;
+        case ShaderJobStatus::Cpu:
+        case ShaderJobStatus::Driver:
+            ++result.running;
+            break;
+        case ShaderJobStatus::Done:
+            ++result.completed;
+            break;
+        case ShaderJobStatus::Failed:
+            ++result.failed;
+            break;
+        case ShaderJobStatus::Cancelled:
+            ++result.cancelled;
+            break;
+        }
+    }
+    return result;
 }
 
 void ShaderJobHandle::Wait() const {
@@ -191,6 +218,10 @@ ShaderJobHandle ShaderJobScheduler::Submit(ShaderJob job, const ShaderJobBatch* 
             ++state->batch->pending;
         }
         ++stats.priorities[Index(state->work.priority)].queued;
+        if (state->work.runtime_pipeline) {
+            state->runtime_id = ++next_runtime_id;
+            runtime_builds.emplace(state->runtime_id, state);
+        }
         if (stopping || StopRequested(*state)) {
             Finish(*state, ShaderJobStatus::Cancelled, dead);
             return ShaderJobHandle{std::move(state)};
@@ -308,6 +339,33 @@ void ShaderJobScheduler::Shutdown() {
 ShaderJobStats ShaderJobScheduler::Stats() const {
     std::scoped_lock lock{mutex};
     return stats;
+}
+
+ShaderBuildProgress ShaderJobScheduler::RuntimeProgress() const {
+    std::scoped_lock lock{mutex};
+    auto result = runtime_totals;
+    const auto now = Clock::now();
+    for (const auto& [id, job] : runtime_builds) {
+        if (IsQueued(job->status.load())) {
+            ++result.queued;
+        } else {
+            ++result.running;
+        }
+        result.oldest = std::max(
+            result.oldest,
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now - job->submitted));
+    }
+    return result;
+}
+
+ShaderBuildGroup ShaderJobScheduler::CaptureRuntimeBuilds() const {
+    std::scoped_lock lock{mutex};
+    ShaderBuildGroup result;
+    result.jobs.reserve(runtime_builds.size());
+    for (const auto& [id, job] : runtime_builds) {
+        result.jobs.push_back(ShaderJobHandle{job});
+    }
+    return result;
 }
 
 void ShaderJobScheduler::Worker(bool driver) {
@@ -470,6 +528,16 @@ void ShaderJobScheduler::RunDriver(const JobPtr& job) {
 
 void ShaderJobScheduler::Finish(ShaderJobState& job, ShaderJobStatus status,
                                 std::vector<ShaderJob>& dead) {
+    if (job.runtime_id != 0) {
+        if (status == ShaderJobStatus::Done) {
+            ++runtime_totals.completed;
+        } else if (status == ShaderJobStatus::Failed) {
+            ++runtime_totals.failed;
+        } else {
+            ++runtime_totals.cancelled;
+        }
+        runtime_builds.erase(job.runtime_id);
+    }
     auto& counters{stats.priorities[Index(job.priority.load())]};
     if (IsQueued(job.status.load())) {
         --counters.queued;

@@ -289,6 +289,10 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
               "(flickering effects) and copy far more data back from the GPU."));
     INSERT(Settings, use_asynchronous_shaders, tr("Enable asynchronous shader compilation"),
            tr("May reduce shader stutter."));
+    INSERT(Settings, ask_shader_backlog, tr("Ask to pause when many shaders are compiling"),
+           tr("Vulkan desktop only. Offers to pause gameplay when a large backlog of new "
+              "pipeline builds persists. Wait for the known builds or continue playing while "
+              "they compile. Pausing does not discover shaders for upcoming scenes."));
     INSERT(Settings, gpu_clock, tr("GPU Clocks"),
            tr("Makes the game believe GPU work finishes faster than it does, so it stops lowering "
               "resolution and render distance to fit the Switch's clocks."));

@@ -872,3 +872,117 @@ TEST_CASE("A pipeline build job is dropped while queued and run by a waiting dra
     REQUIRE(owned.IsBuilt());
     REQUIRE(builds == 3);
 }
+
+TEST_CASE("Runtime build snapshots exclude cache jobs and survive shutdown", "[shader_backlog]") {
+    VideoCommon::ShaderBuildGroup captured;
+    {
+        ShaderJobScheduler scheduler{Config(1, 1)};
+        Gate gate;
+        const auto blocker = Block(scheduler, gate);
+        auto runtime = CpuJob(Soon, [] {});
+        runtime.runtime_pipeline = true;
+        const auto first = scheduler.Submit(std::move(runtime));
+        const auto cache = scheduler.Submit(CpuJob(Background, [] {}));
+        scheduler.Promote(first, NeedNow);
+        captured = scheduler.CaptureRuntimeBuilds();
+        const auto before = scheduler.RuntimeProgress();
+        auto later = CpuJob(Soon, [] {});
+        later.runtime_pipeline = true;
+        const auto second = scheduler.Submit(std::move(later));
+        const auto group_before = captured.Progress();
+        scheduler.Cancel(first);
+        scheduler.Cancel(second);
+        gate.Open();
+        blocker.Wait();
+        cache.Wait();
+        REQUIRE(before.Pending() == 1);
+        REQUIRE(before.queued == 1);
+        REQUIRE(group_before.Pending() == 1);
+        REQUIRE(captured.jobs.size() == 1);
+        REQUIRE(scheduler.RuntimeProgress().Pending() == 0);
+        REQUIRE(scheduler.RuntimeProgress().cancelled == 2);
+    }
+    REQUIRE(captured.Progress().cancelled == 1);
+    REQUIRE(captured.Progress().Pending() == 0);
+}
+
+TEST_CASE("Runtime groups count a two-stage build once and terminate on failure",
+          "[shader_backlog]") {
+    ShaderJobScheduler scheduler{Config(1, 1)};
+    Gate gate;
+    const auto blocker = Block(scheduler, gate);
+    std::atomic<int> driver_runs{};
+    const auto two_stage = scheduler.Submit({
+        .cpu = [&](ShaderJobContext&) -> ShaderDriverStage { return [&] { ++driver_runs; }; },
+        .runtime_pipeline = true,
+    });
+    const auto failing = scheduler.Submit({
+        .driver = [] { throw std::runtime_error("test driver failure"); },
+        .runtime_pipeline = true,
+    });
+    const auto captured = scheduler.CaptureRuntimeBuilds();
+    const auto before = captured.Progress();
+    gate.Open();
+    blocker.Wait();
+    two_stage.Wait();
+    failing.Wait();
+    const auto after = captured.Progress();
+    REQUIRE(before.Pending() == 2);
+    REQUIRE(after.Pending() == 0);
+    REQUIRE(after.completed == 1);
+    REQUIRE(after.failed == 1);
+    REQUIRE(driver_runs == 1);
+    REQUIRE(scheduler.RuntimeProgress().completed == 1);
+    REQUIRE(scheduler.RuntimeProgress().failed == 1);
+}
+
+TEST_CASE("Shutdown cancels a captured runtime queue without stranding its group",
+          "[shader_backlog]") {
+    ShaderJobScheduler scheduler{Config(1, 1)};
+    Gate gate;
+    const auto blocker = Block(scheduler, gate);
+    auto work = CpuJob(Background, [] {});
+    work.runtime_pipeline = true;
+    const auto job = scheduler.Submit(std::move(work));
+    const auto group = scheduler.CaptureRuntimeBuilds();
+    scheduler.Cancel(job);
+    gate.Open();
+    scheduler.Shutdown();
+    REQUIRE(group.Progress().Pending() == 0);
+    REQUIRE(group.Progress().cancelled == 1);
+}
+
+
+TEST_CASE("Runtime pipeline failures reach the captured group's terminal counts", "[shader_backlog]") {
+    for (const bool emission_failure : {false, true}) {
+        ShaderJobScheduler scheduler{Config(1, 1)};
+        Gate gate;
+        Vulkan::PipelineBuildQueue queue{.jobs = &scheduler, .runtime_pipeline = true};
+        std::function<void()> emit;
+        if (emission_failure) {
+            emit = [&] {
+                gate.Wait();
+                throw std::runtime_error("test emission failure");
+            };
+        }
+        Vulkan::PipelineBuild pipeline{
+            queue,
+            [&] {
+                if (!emission_failure) {
+                    gate.Wait();
+                    throw std::runtime_error("test pipeline failure");
+                }
+            },
+            std::move(emit)};
+        const auto captured = scheduler.CaptureRuntimeBuilds();
+        gate.Open();
+        pipeline.Wait();
+        for (const auto& job : captured.jobs) {
+            job.Wait();
+        }
+        REQUIRE(pipeline.IsBuilt());
+        REQUIRE(pipeline.Failed());
+        REQUIRE(captured.Progress().Pending() == 0);
+        REQUIRE(captured.Progress().failed == 1);
+    }
+}

@@ -68,7 +68,7 @@ void EmuThread::run() {
             m_stopped.Set();
 
             EmulationPaused(lk);
-            m_should_run_cv.wait(lk, stop_token, [&] { return m_should_run; });
+            m_should_run_cv.wait(lk, stop_token, [&] { return m_should_run.load(); });
             EmulationResumed(lk);
         }
     }

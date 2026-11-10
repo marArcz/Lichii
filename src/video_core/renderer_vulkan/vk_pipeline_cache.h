@@ -132,6 +132,13 @@ public:
                            TextureCache& texture_cache, VideoCore::ShaderNotify& shader_notify_);
     ~PipelineCache();
 
+    VideoCommon::ShaderBuildProgress RuntimeShaderBuilds() const {
+        return shader_jobs->RuntimeProgress();
+    }
+    VideoCommon::ShaderBuildGroup CaptureRuntimeShaderBuilds() const {
+        return shader_jobs->CaptureRuntimeBuilds();
+    }
+
     [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipeline();
 
     void TickFrame();

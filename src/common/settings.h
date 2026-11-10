@@ -649,6 +649,10 @@ struct Values {
     SwitchableSetting<bool> use_disk_shader_cache{linkage, true, "use_disk_shader_cache",
                                                   Category::RendererAdvanced};
 
+    SwitchableSetting<bool> ask_shader_backlog{
+        linkage, false, "ask_shader_backlog", Category::RendererAdvanced, Specialization::Default,
+        true,    true};
+
     SwitchableSetting<bool> use_vulkan_driver_pipeline_cache{
         linkage, true, "use_vulkan_driver_pipeline_cache", Category::RendererAdvanced,
         Specialization::Default};

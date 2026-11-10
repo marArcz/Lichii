@@ -180,6 +180,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "video_core/gpu.h"
 #include "video_core/renderer_base.h"
 #include "video_core/shader_notify.h"
+#include "yuzu/shader_backlog_prompt.h"
 
 #include <SDL3/SDL.h>
 
@@ -1469,7 +1470,8 @@ void MainWindow::OnAppFocusStateChanged(Qt::ApplicationState state) {
     if (!emulation_running) {
         return;
     }
-    if (UISettings::values.pause_when_in_background) {
+    if (UISettings::values.pause_when_in_background &&
+        !(shader_backlog_prompt && shader_backlog_prompt->OwnsPause())) {
         if (QtCommon::emu_thread->IsRunning() &&
             (state & (Qt::ApplicationHidden | Qt::ApplicationInactive))) {
             auto_paused = true;
@@ -2268,6 +2270,73 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
 
     // Create and start the emulation thread
     QtCommon::emu_thread = std::make_unique<EmuThread>();
+    shader_backlog_prompt = std::make_unique<ShaderBacklogPrompt>(
+        this,
+        ShaderBacklogPrompt::Access{
+            .alive =
+                [this] {
+                    return emulation_running && QtCommon::emu_thread &&
+                           QtCommon::system->IsPoweredOn() && !QtCommon::system->IsShuttingDown();
+                },
+            .enabled = [] { return Settings::values.ask_shader_backlog.GetValue(); },
+            .eligible =
+                [this] {
+                    return !loading_screen->isVisible() && !boot_in_progress &&
+                           QtCommon::emu_thread->IsRunning() && !QtCommon::system->IsPaused() &&
+                           !QtCommon::system->DebuggerEnabled() &&
+                           QApplication::applicationState() == Qt::ApplicationActive &&
+                           QApplication::activeModalWidget() == nullptr;
+                },
+            .can_show_dialog = [] {
+                return QApplication::applicationState() == Qt::ApplicationActive &&
+                       QApplication::activeModalWidget() == nullptr;
+            },
+            .paused =
+                [] { return !QtCommon::emu_thread->IsRunning() && QtCommon::system->IsPaused(); },
+            .progress =
+                [] { return QtCommon::system->Renderer().ReadRasterizer()->RuntimeShaderBuilds(); },
+            .capture =
+                [] {
+                    return QtCommon::system->Renderer()
+                        .ReadRasterizer()
+                        ->CaptureRuntimeShaderBuilds();
+                },
+            .pause =
+                [this] {
+                    QtCommon::emu_thread->RequestPause();
+                    play_time_manager->Stop();
+                    UpdateMenuState();
+                    AllowOSSleep();
+                    Common::FeralGamemode::Stop();
+                    const auto progress =
+                        QtCommon::system->Renderer().ReadRasterizer()->RuntimeShaderBuilds();
+                    LOG_INFO(Frontend,
+                             "Shader backlog pause: {} pending, oldest {} ms, {} completed, mean "
+                             "frame {:.2f} ms",
+                             progress.Pending(),
+                             std::chrono::duration_cast<std::chrono::milliseconds>(progress.oldest)
+                                 .count(),
+                             progress.completed,
+                             QtCommon::system->GetPerfStats().GetMeanFrametime() * 1000.0);
+                },
+            .resume =
+                [this] {
+                    if (UISettings::values.pause_when_in_background &&
+                        QApplication::applicationState() != Qt::ApplicationActive) {
+                        auto_paused = true;
+                        return;
+                    }
+                    OnStartGame();
+                },
+            .report_failures =
+                [this](u64 failed, u64 cancelled) {
+                    statusBar()->showMessage(tr("Shader builds finished with %1 failed and %2 "
+                                                "cancelled. See the log for details.")
+                                                 .arg(failed)
+                                                 .arg(cancelled),
+                                             15000);
+                },
+        });
     emit EmulationStarting();
     QtCommon::emu_thread->start();
 
@@ -2298,6 +2367,9 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
     connect(
         QtCommon::emu_thread.get(), &EmuThread::ShaderCacheReloadStarted, this,
         [this] {
+            if (shader_backlog_prompt && shader_backlog_prompt->OwnsPause()) {
+                OnStartGame();
+            }
             loading_screen->Prepare(QtCommon::system->GetAppLoader());
             loading_screen->show();
             render_window->hide();
@@ -2389,6 +2461,7 @@ bool MainWindow::OnShutdownBegin() {
     if (!emulation_running) {
         return false;
     }
+    shader_backlog_prompt.reset();
 
     if (ui->action_Fullscreen->isChecked()) {
         HideFullscreen();
@@ -2483,6 +2556,7 @@ void MainWindow::OnEmulationStopped() {
     if (QtCommon::emu_thread && QtCommon::emu_thread->isRunning()) {
         return;
     }
+    shader_backlog_prompt.reset();
     shutdown_timer.stop();
     emu_terminate_timer.stop();
     if (QtCommon::emu_thread) {
@@ -3370,6 +3444,9 @@ void MainWindow::OnMenuRecentFile() {
 }
 
 void MainWindow::OnStartGame() {
+    if (shader_backlog_prompt) {
+        shader_backlog_prompt->Cancel();
+    }
     PreventOSSleep();
 
     QtCommon::emu_thread->SetRunning(true);
@@ -3398,6 +3475,9 @@ void MainWindow::OnRestartGame() {
 }
 
 void MainWindow::OnPauseGame() {
+    if (shader_backlog_prompt) {
+        shader_backlog_prompt->Cancel();
+    }
     QtCommon::emu_thread->SetRunning(false);
     play_time_manager->Stop();
     UpdateMenuState();

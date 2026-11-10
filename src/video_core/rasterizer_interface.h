@@ -20,6 +20,7 @@
 #include "video_core/gpu.h"
 #include "video_core/query_cache/types.h"
 #include "video_core/rasterizer_download_area.h"
+#include "video_core/shader_jobs.h"
 
 namespace Tegra {
 class MemoryManager;
@@ -57,6 +58,13 @@ inline thread_local bool g_signaling_query_report_fence = false;
 class RasterizerInterface {
 public:
     virtual ~RasterizerInterface() = default;
+
+    virtual VideoCommon::ShaderBuildProgress RuntimeShaderBuilds() const {
+        return {};
+    }
+    virtual VideoCommon::ShaderBuildGroup CaptureRuntimeShaderBuilds() const {
+        return {};
+    }
 
     /// Dispatches a draw invocation
     virtual void Draw(bool is_indexed, u32 instance_count) = 0;

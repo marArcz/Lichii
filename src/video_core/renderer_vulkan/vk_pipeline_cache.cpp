@@ -1127,7 +1127,10 @@ PipelineBuildQueue PipelineCache::BuildQueue(bool build_in_parallel, u64 cpu_byt
     if (!build_in_parallel) {
         return {.owner_builds = true};
     }
-    return {.jobs = &*shader_jobs, .cpu_bytes = cpu_bytes, .driver_bytes = DriverCompileBytes};
+    return {.jobs = &*shader_jobs,
+            .cpu_bytes = cpu_bytes,
+            .driver_bytes = DriverCompileBytes,
+            .runtime_pipeline = true};
 }
 
 std::shared_ptr<ShaderPools> PipelineCache::TakeSparePools() {

@@ -2,6 +2,27 @@
 
 Graphical enhancements and visual quality improvments. This doesn't cover texture mods.
 
+### Pause for shader compilation
+
+On desktop Vulkan builds, enable **Ask to pause when many shaders are compiling**
+under **Emulation > Configure > Graphics > Advanced** (or in a game's properties).
+It is off by default. When at least 64 new pipeline builds remain pending for two
+seconds and the oldest has waited at least one second, Lichii pauses gameplay and
+offers **Wait for builds** or **Continue playing**.
+
+Waiting shows progress for the builds captured when you choose it and resumes
+automatically when they finish. Continue playing, Escape or closing the dialog
+resumes without cancelling compilation. **Don't ask again this session** suppresses
+further prompts until the next game launch. Prompts have a one-minute cooldown and
+require the backlog to clear substantially before another prompt can appear.
+
+This finishes known pipeline builds; pausing does not reveal shaders in upcoming
+scenes or continue the entire skipped startup precache. Startup/cache prebuilds
+do not trigger this prompt, and synchronous shader translation stalls are outside
+its coverage. It does not change your asynchronous compilation settings. More
+shaders may still compile after you resume. Failed or cancelled builds are reported
+in the status bar; their details are in the log.
+
 ## Visual Enhancements
 
 ### Anti-aliasing

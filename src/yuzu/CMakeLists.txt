@@ -15,7 +15,16 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 if(YUZU_TESTS)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
     add_subdirectory(../tests/qt_compatibility ${CMAKE_BINARY_DIR}/qt_compatibility_tests)
+    add_executable(shader_backlog_tests
+        ../tests/qt_shader_backlog.cpp
+        shader_backlog_prompt.cpp shader_backlog_prompt.h
+        ../video_core/shader_jobs.cpp)
+    target_include_directories(shader_backlog_tests PRIVATE ..)
+    target_link_libraries(shader_backlog_tests PRIVATE common Qt6::Widgets Qt6::Test Threads::Threads)
+    add_test(NAME shader_backlog COMMAND shader_backlog_tests)
+    set_tests_properties(shader_backlog PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 add_executable(yuzu
@@ -236,6 +245,7 @@ add_executable(yuzu
     migration_dialog.h migration_dialog.cpp
     nup_dialogs.h nup_dialogs.cpp
     shader_warm_dialog.h shader_warm_dialog.cpp
+    shader_backlog_prompt.h shader_backlog_prompt.cpp shader_backlog_policy.h
     migration_worker.h migration_worker.cpp
     libqt_common.h libqt_common.cpp
 

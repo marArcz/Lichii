@@ -170,6 +170,13 @@ public:
     void LoadDiskResources(u64 title_id, std::stop_token stop_loading,
                            const VideoCore::DiskResourceLoadCallback& callback) override;
 
+    VideoCommon::ShaderBuildProgress RuntimeShaderBuilds() const override {
+        return pipeline_cache.RuntimeShaderBuilds();
+    }
+    VideoCommon::ShaderBuildGroup CaptureRuntimeShaderBuilds() const override {
+        return pipeline_cache.CaptureRuntimeShaderBuilds();
+    }
+
     void InitializeChannel(Tegra::Control::ChannelState& channel) override;
 
     void BindChannel(Tegra::Control::ChannelState& channel) override;

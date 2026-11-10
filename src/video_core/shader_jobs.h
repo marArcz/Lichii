@@ -9,6 +9,7 @@
 #include <deque>
 #include <exception>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -53,6 +54,8 @@ struct ShaderJob {
     u64 driver_bytes{};
     ShaderCpuStage cpu;
     ShaderDriverStage driver;
+    // Pipeline emission/driver work requested by gameplay, excluding cache and stage-only jobs.
+    bool runtime_pipeline{};
 };
 
 struct ShaderJobState;
@@ -82,6 +85,29 @@ private:
     explicit ShaderJobHandle(std::shared_ptr<ShaderJobState> state_) : state{std::move(state_)} {}
 
     std::shared_ptr<ShaderJobState> state;
+};
+
+struct ShaderBuildProgress {
+    bool supported{};
+    u64 queued{};
+    u64 running{};
+    u64 completed{};
+    u64 failed{};
+    u64 cancelled{};
+    std::chrono::nanoseconds oldest{};
+
+    u64 Pending() const {
+        return queued + running;
+    }
+    u64 Finished() const {
+        return completed + failed + cancelled;
+    }
+};
+
+// Handles retain only their own job state, so this group remains safe after renderer shutdown.
+struct ShaderBuildGroup {
+    std::vector<ShaderJobHandle> jobs;
+    ShaderBuildProgress Progress() const;
 };
 
 /// Jobs submitted together, e.g. one boot load, to be waited for and cancelled together without
@@ -175,6 +201,8 @@ public:
     void Shutdown();
 
     ShaderJobStats Stats() const;
+    ShaderBuildProgress RuntimeProgress() const;
+    ShaderBuildGroup CaptureRuntimeBuilds() const;
 
 private:
     friend class ShaderJobContext;
@@ -204,6 +232,9 @@ private:
     /// A worker waits for in-flight bytes to drop.
     bool budget_held{};
     ShaderJobStats stats;
+    std::map<u64, JobPtr> runtime_builds;
+    u64 next_runtime_id{};
+    ShaderBuildProgress runtime_totals{.supported = true};
     std::vector<std::thread> threads;
 };
 

@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <utility>
 
 #include "common/logging.h"
@@ -75,6 +76,7 @@ struct PipelineBuildQueue {
     u64 driver_bytes{};
     /// Left for Build(), the driver stage of the job that translated it
     bool owner_builds{};
+    bool runtime_pipeline{};
 };
 
 class PipelineBuild {
@@ -135,6 +137,7 @@ public:
                 .cpu_bytes = queue.cpu_bytes,
                 .driver_bytes = queue.driver_bytes,
             };
+            job.runtime_pipeline = queue.runtime_pipeline;
             if (emit) {
                 job.cpu = [state = state, emit = std::move(emit)](
                               VideoCommon::ShaderJobContext&) mutable -> VideoCommon::ShaderDriverStage {
@@ -144,16 +147,26 @@ public:
                         LOG_ERROR(Render_Vulkan, "Graphics pipeline emission failed: {}",
                                   exception.what());
                         state->Fail();
-                        return {};
+                        throw;
                     } catch (...) {
                         LOG_ERROR(Render_Vulkan, "Graphics pipeline emission failed");
                         state->Fail();
-                        return {};
+                        throw;
                     }
-                    return [state] { state->Run(); };
+                    return [state] {
+                        state->Run();
+                        if (state->failed) {
+                            throw std::runtime_error("Graphics pipeline build failed");
+                        }
+                    };
                 };
             } else {
-                job.driver = [state = state] { state->Run(); };
+                job.driver = [state = state] {
+                    state->Run();
+                    if (state->failed) {
+                        throw std::runtime_error("Graphics pipeline build failed");
+                    }
+                };
             }
             handle = jobs->Submit(std::move(job));
         } else if (!owner_builds) {

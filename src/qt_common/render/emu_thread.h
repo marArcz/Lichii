@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <optional>
 
 #include <QThread>
@@ -58,6 +59,13 @@ public:
         return m_should_run;
     }
 
+    // The caller observes System::IsPaused() before displaying a pause-dependent UI.
+    void RequestPause() {
+        std::scoped_lock lock{m_should_run_mutex};
+        m_should_run = false;
+        m_should_run_cv.notify_one();
+    }
+
     /**
      * Requests for the emulation thread to immediately stop running
      */
@@ -85,7 +93,7 @@ private:
     std::mutex m_should_run_mutex;
     std::condition_variable_any m_should_run_cv;
     Common::Event m_stopped;
-    bool m_should_run{true};
+    std::atomic_bool m_should_run{true};
     std::optional<u64> m_pending_shader_cache_title;
 
 signals:
