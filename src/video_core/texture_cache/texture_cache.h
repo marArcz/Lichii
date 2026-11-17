@@ -2451,6 +2451,9 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
     const u64 trace_faults = tc_trace ? Common::GetProcessPageFaults() : 0;
     auto trace_staged = trace_begin;
     upload_trace = {};
+    if constexpr (requires { runtime.PrepareImageUpload(image); }) {
+        runtime.PrepareImageUpload(image);
+    }
     const bool chunked = UploadInChunks(image);
     if (!chunked) {
         auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));

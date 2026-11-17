@@ -88,6 +88,8 @@ public:
 
     StagingBufferRef UploadStagingBuffer(size_t size, bool deferred = false);
 
+    void PrepareImageUpload(const Image& image);
+
     StagingBufferRef DownloadStagingBuffer(size_t size, bool deferred = false);
 
     void FreeDeferredStagingBuffer(StagingBufferRef& ref);
@@ -324,6 +326,9 @@ public:
         u32 layers;
         u32 unused_frames;
     };
+    static u64 TranscodeDecodeBytes(const PendingTranscode& transcode);
+    u64 PendingTranscodeBytes() const;
+    void RecycleTranscodes();
     std::deque<PendingTranscode> pending_transcodes;
     /// Decode images the GPU is done with, for the next texture of the same shape.
     std::vector<PendingTranscode> free_transcodes;
