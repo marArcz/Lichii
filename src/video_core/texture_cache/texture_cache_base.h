@@ -41,6 +41,7 @@
 #include "video_core/engines/fermi_2d.h"
 #include "video_core/game_dlss_status.h"
 #include "video_core/surface.h"
+#include "video_core/texture_cache/astc_upload_reuse.h"
 #include "video_core/texture_cache/descriptor_table.h"
 #include "video_core/texture_cache/image_base.h"
 #include "video_core/texture_cache/image_info.h"
@@ -531,7 +532,8 @@ private:
 
     /// Upload data from guest to an image
     template <typename StagingBuffer>
-    void UploadImageContents(Image& image, StagingBuffer& staging_buffer);
+    void UploadImageContents(Image& image, StagingBuffer& staging_buffer,
+                             std::span<const u8> astc_input);
 
     /// Create a new image view from a guest descriptor
     [[nodiscard]] ImageViewId CreateImageView(const TICEntry& config);
@@ -708,6 +710,10 @@ private:
     u64 tc_stale_skips{};        ///< Uploads skipped (last 600 frames)
     u64 tc_stale_skip_bytes{};
     u64 tc_stale_gpu_written{};  ///< Stale but buffer-written pages: uploaded after all
+    AstcUploadReuse astc_upload_reuse;
+    u64 astc_reuse_checks{};
+    u64 astc_reuse_hits{};
+    u64 astc_reuse_hit_bytes{};
 
     /// The CPU address an image at gpu_addr is keyed by: its backing, or a fixed stand-in.
     [[nodiscard]] std::optional<DAddr> ImageCpuAddress(GPUVAddr gpu_addr, size_t size) const;

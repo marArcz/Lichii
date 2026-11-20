@@ -4,6 +4,16 @@ See `docs/Coding.md` for technical coding guidance.
 
 Keep comments to a reasonable level. Do not overexplain or add/remove comments from unrelated parts of the codebase.
 
+## Ocarina of Time laptop performance goal
+
+Optimize Lichii for The Legend of Zelda: Ocarina of Time (`0400486024DEC000`, Switch 2) on the user's Windows laptop with an 11th-generation Intel Core i7, an NVIDIA GeForce RTX 3050 Laptop GPU with 4 GB of VRAM, and 16 GB of RAM.
+
+Prioritize stable gameplay at native game speed, fewer shader and texture hitches, and lower peak memory use while preserving correct rendering. Compare cold and warm cache runs on the same build, settings, and route. Record frame-time tails, shader build time, local and non-local GPU memory usage, and Windows commit against its limit. Verify results on the target laptop.
+
+Use Ryubing's Switch 1 code as a reference for texture upload reuse, readback policy, and cache design. Check each idea against Lichii's existing implementation and Switch 2 behavior before adapting it.
+
+To A/B the experimental Vulkan ASTC upload reuse path, run Ocarina with and without `EDEN_NX2_OOT_ASTC_REUSE=1`. The `Ocarina ASTC reuse` log reports checks and skipped decodes. Compare the same warm-cache route for frame-time tails and visual correctness.
+
 ## Game bug reports
 
 Users report game bugs with Lichii logs (`eden_log.txt`, `eden_log.txt.old`). Each `Booting game: <program id>` line starts a session; the build is on the first line (`Lichii Version: ... | nx2-<sha>`). Known program ids:

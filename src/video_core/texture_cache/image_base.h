@@ -117,6 +117,7 @@ struct ImageBase {
     std::vector<std::pair<u64, u64>> dirty_ranges;
     u64 scale_tick = 0;
     bool has_scaled = false;
+    bool astc_uploaded = false;
 
     /// The channel and GPU address space whose page table RegisterImage put the image in.
     size_t channel = 0;

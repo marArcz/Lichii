@@ -15,6 +15,7 @@
 #include <optional>
 #include <bit>
 #include <string>
+#include <string_view>
 #include <utility>
 #include "common/container/unordered_map.h"
 #include <boost/container/small_vector.hpp>
@@ -32,6 +33,7 @@
 #include "video_core/host1x/gpu_device_memory_manager.h"
 #include "video_core/nx2.h"
 #include "video_core/nx2_profile.h"
+#include "video_core/oot_network.h"
 #include "video_core/render_trace.h"
 #include "video_core/texture_cache/conversion.h"
 #include "video_core/texture_cache/eviction_age.h"
@@ -58,6 +60,14 @@ namespace VideoCommon {
         return v != nullptr && v[0] == '1';
     }();
     return enabled;
+}
+
+[[nodiscard]] inline bool OcarinaAstcUploadReuseEnabled() {
+    static const bool enabled = [] {
+        const char* const value = std::getenv("EDEN_NX2_OOT_ASTC_REUSE");
+        return value != nullptr && std::string_view{value} == "1";
+    }();
+    return enabled && Settings::GetCurrentProgramID() == OotNetwork::ProgramId;
 }
 
 using Tegra::Texture::TICEntry;
@@ -425,6 +435,11 @@ void TextureCache<P>::LogThresholds() const {
 
 template <class P>
 void TextureCache<P>::TickFrame() {
+    if (frame_tick % 600 == 0 && astc_reuse_checks != 0) {
+        LOG_INFO(HW_GPU, "Ocarina ASTC reuse: {} checks, {} skipped decodes ({} KiB of input)",
+                 astc_reuse_checks, astc_reuse_hits, astc_reuse_hit_bytes >> 10);
+        astc_reuse_checks = astc_reuse_hits = astc_reuse_hit_bytes = 0;
+    }
     // Upload buffers grown for one huge image (title 1's 341 MiB terrain layer pools) are freed
     // rather than kept for the rest of the session.
     for (auto* const scratch : {&swizzle_data_buffer, &unswizzle_data_buffer}) {
@@ -2442,15 +2457,53 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
         QueueAsyncUnswizzle(image, image_id);
         return;
     }
-    ++images_uploaded;
-    uploaded_bytes += image.guest_size_bytes;
-    largest_upload = (std::max<u64>)(largest_upload, image.guest_size_bytes);
     using TraceClock = std::chrono::steady_clock;
     const bool tc_trace = TextureCacheTrace();
     const auto trace_begin = tc_trace ? TraceClock::now() : TraceClock::time_point{};
     const u64 trace_faults = tc_trace ? Common::GetProcessPageFaults() : 0;
     auto trace_staged = trace_begin;
     upload_trace = {};
+    std::span<const u8> astc_input;
+    bool track_astc_upload = false;
+    if constexpr (requires { &Runtime::AccelerateImageUploadLayers; }) {
+        if (OcarinaAstcUploadReuseEnabled() && IsPixelFormatASTC(image.info.format)) {
+            // Only reuse a resident host copy with no GPU writes or alias copies.
+            constexpr auto excluded = ImageFlagBits::GpuModified | ImageFlagBits::Remapped |
+                                      ImageFlagBits::Sparse | ImageFlagBits::Alias |
+                                      ImageFlagBits::BadOverlap | ImageFlagBits::TrimmedLevels;
+            if (True(image.flags & ImageFlagBits::AcceleratedUpload) &&
+                False(image.flags & excluded) && !image.HasScaled() &&
+                image.aliased_images.empty() && image.overlapping_images.empty() &&
+                image.info.type == ImageType::e2D && image.info.resources.layers == 1 &&
+                image.host_level_offset == 0 &&
+                image.guest_size_bytes <= AstcUploadReuse::MaxTextureBytes) {
+                track_astc_upload = true;
+            }
+            // The first upload tells us nothing about whether the image will be rewritten.
+            if (track_astc_upload && image.astc_uploaded) {
+                auto bytes = astc_upload_reuse.ReadBuffer(image.guest_size_bytes);
+                if (!bytes.empty()) {
+                    gpu_memory->ReadBlock(image.gpu_addr, bytes.data(), bytes.size(),
+                                          VideoCommon::CacheType::NoTextureCache);
+                    astc_input = bytes;
+                    ++astc_reuse_checks;
+                    if (False(image.flags & ImageFlagBits::CpuModified) &&
+                        astc_upload_reuse.Matches(image_id.Value(), image.modification_tick,
+                                                  astc_input)) {
+                        ++astc_reuse_hits;
+                        astc_reuse_hit_bytes += astc_input.size();
+                        return;
+                    }
+                }
+            }
+            if (astc_input.empty()) {
+                astc_upload_reuse.Forget(image_id.Value());
+            }
+        }
+    }
+    ++images_uploaded;
+    uploaded_bytes += image.guest_size_bytes;
+    largest_upload = (std::max<u64>)(largest_upload, image.guest_size_bytes);
     if constexpr (requires { runtime.PrepareImageUpload(image); }) {
         runtime.PrepareImageUpload(image);
     }
@@ -2460,7 +2513,22 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
         if (tc_trace) {
             trace_staged = TraceClock::now();
         }
-        UploadImageContents(image, staging);
+        // Dedicated staging buffers can be rounded up. Keep their normal read path.
+        if (!astc_input.empty() && astc_input.size() != staging.mapped_span.size()) {
+            astc_upload_reuse.Forget(image_id.Value());
+            astc_input = {};
+        }
+        UploadImageContents(image, staging, astc_input);
+        if (track_astc_upload) {
+            if (True(image.flags & ImageFlagBits::CpuModified)) {
+                astc_upload_reuse.Forget(image_id.Value());
+            } else {
+                image.astc_uploaded = true;
+                if (!astc_input.empty()) {
+                    astc_upload_reuse.Remember(image_id.Value(), image.modification_tick, astc_input);
+                }
+            }
+        }
         runtime.InsertUploadMemoryBarrier();
     }
     if (tc_trace) {
@@ -2771,7 +2839,8 @@ void TextureCache<P>::UploadLayers(Image& image, std::span<const u32> layers) {
 
 template <class P>
 template <typename StagingBuffer>
-void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) {
+void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging,
+                                          std::span<const u8> astc_input) {
     const std::span<u8> mapped_span = staging.mapped_span;
     const GPUVAddr gpu_addr = image.gpu_addr;
 
@@ -2794,8 +2863,12 @@ void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) 
         return;
     }
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
-        gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),
-                              VideoCommon::CacheType::NoTextureCache);
+        if (astc_input.empty()) {
+            gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),
+                                  VideoCommon::CacheType::NoTextureCache);
+        } else {
+            std::ranges::copy(astc_input, mapped_span.begin());
+        }
         const auto uploads = FullUploadSwizzles(image.info);
         runtime.AccelerateImageUpload(image, staging, uploads, 0, 0);
         return;
@@ -4379,6 +4452,11 @@ template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
     const StutterTrace::SiteScope site{StutterTrace::Site::ImageDelete};
     ImageBase& image = slot_images[image_id];
+    if constexpr (requires { &Runtime::AccelerateImageUploadLayers; }) {
+        if (OcarinaAstcUploadReuseEnabled() && IsPixelFormatASTC(image.info.format)) {
+            astc_upload_reuse.Forget(image_id.Value());
+        }
+    }
     ++images_deleted;
     ++churn.deleted;
     {

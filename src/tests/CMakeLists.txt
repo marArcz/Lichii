@@ -20,6 +20,7 @@ add_executable(tests
     video_core/list_macro_trace.cpp
     video_core/host_mip_limits.cpp
     video_core/astc_decode_scratch.cpp
+    video_core/astc_upload_reuse.cpp
     video_core/gpu_timestamp.cpp
     video_core/semaphore_waiters.cpp
     video_core/hdr_output.cpp
